@@ -1,0 +1,358 @@
+---
+title: "Caso Pŕactico Final"
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+Tomaremos el dataset de aprobación de crédito bancario en https://archive.ics.uci.edu/ml/datasets/Credit+Approval . Los datos también se pueden cargar de la carpeta de contenido en  `crx.data`. La información del dataset está en https://archive.ics.uci.edu/ml/machine-learning-databases/credit-screening/crx.names y expone lo siguiente:
+
+      1. Title: Credit Approval
+
+      2. Sources: 
+          (confidential)
+          Submitted by quinlan@cs.su.oz.au
+      
+      3.  Past Usage:
+      
+          See Quinlan,
+          * "Simplifying decision trees", Int J Man-Machine Studies 27,
+            Dec 1987, pp. 221-234.
+          * "C4.5: Programs for Machine Learning", Morgan Kaufmann, Oct 1992
+        
+      4.  Relevant Information:
+      
+          This file concerns credit card applications.  All attribute names
+          and values have been changed to meaningless symbols to protect
+          confidentiality of the data.
+        
+          This dataset is interesting because there is a good mix of
+          attributes -- continuous, nominal with small numbers of
+          values, and nominal with larger numbers of values.  There
+          are also a few missing values.
+        
+      5.  Number of Instances: 690
+      
+      6.  Number of Attributes: 15 + class attribute
+      
+      7.  Attribute Information:
+      
+          A1:	b, a.
+          A2:	continuous.
+          A3:	continuous.
+          A4:	u, y, l, t.
+          A5:	g, p, gg.
+          A6:	c, d, cc, i, j, k, m, r, q, w, x, e, aa, ff.
+          A7:	v, h, bb, j, n, z, dd, ff, o.
+          A8:	continuous.
+          A9:	t, f.
+          A10:	t, f.
+          A11:	continuous.
+          A12:	t, f.
+          A13:	g, p, s.
+          A14:	continuous.
+          A15:	continuous.
+          A16: +,-         (class attribute)
+      
+      8.  Missing Attribute Values:
+          37 cases (5%) have one or more missing values.  The missing
+          values from particular attributes are:
+      
+          A1:  12
+          A2:  12
+          A4:   6
+          A5:   6
+          A6:   9
+          A7:   9
+          A14: 13
+      
+      9.  Class Distribution
+        
+          +: 307 (44.5%)
+          -: 383 (55.5%)
+      
+## Actividades a realizar
+
+1. Carga los datos. Realiza una inspección por variables de la distribución de aprobación de crédito en función de cada atributo visualmente. Realiza las observaciones pertinentes. ¿ Qué variables son mejores para separar los datos?
+2. Prepara el dataset convenientemente e imputa los valores faltantes usando la librería `missForest`
+3. Divide el dataset tomando las primeras 590 instancias como train y las últimas 100 como test.
+4. Entrena un modelo de regresión logística con regularización Ridge y Lasso en train seleccionando el que mejor **AUC** tenga. Da las métricas en test.
+5. Aporta los *log odds* de las variables predictoras sobre la variable objetivo.
+6. Si por cada verdadero positivo ganamos 100e y por cada falso positivo perdemos 20e. ¿ Qué rentabilidad aporta aplicar este modelo?
+
+A lo largo del notebook generado en R, se irá explicando el procedimiento mediante el cual se ha llegado a los resultadosde cada apartado.
+
+### 1. Carga los datos. Realiza una inspección por variables de la distribución de aprobación de crédito en función de cada atributo visualmente. Realiza las observaciones pertinentes. ¿ Qué variables son mejores para separar los datos?
+
+Cargamos los datos del archivo `crx.data`. Después, omitimos los valores faltantes de los factores (que tienen nivel `?`) y le asignamos el tipo correcto a cada columna del dataframe:
+
+```{r}
+# Importamos los datos en el dataframe "df" y les damos nombre a las COLUMNAS
+df <- read.csv(file='crx.data',sep=",",header=F)
+colnames(df) <- c('A1','A2','A3','A4','A5','A6','A7','A8','A9','A10','A11','A12','A13','A14','A15','A16')
+
+# Se importa como FACTOR, lo convertimos a DOUBLE
+df$A2 <- as.double(as.character(df$A2))
+
+# Se importa como FACTOR, lo convertimos a INTEGER 
+df$A14 <- as.integer(as.character(df$A14))
+
+# El resto de los valores faltantes los reemplazamos por NA
+df$A1[df$A1=='?']<- NA 
+df$A4[df$A4=='?']<- NA
+df$A5[df$A5=='?']<- NA 
+df$A6[df$A6=='?']<- NA 
+df$A7[df$A7=='?']<- NA 
+
+# Los redefinimos como factores eliminando el nivel '?', donde ahora figuran NAs
+df$A1 <- factor(df$A1) 
+df$A4 <- factor(df$A4) 
+df$A5 <- factor(df$A5) 
+df$A6 <- factor(df$A6) 
+df$A7 <- factor(df$A7) 
+
+head(df)
+```
+
+
+En primer lugar, hay que imputar los valores faltantes del dataset con la librería `missForest` (los valores NA):
+
+```{r}
+library(missForest)
+
+df.imp <- missForest(df,maxiter=20,ntree=500,variablewise=T)
+
+```
+
+
+Redefinimos el dataframe `df_complete` como aquel que tiene los valores imputados, e inspeccionamos cada una de las variables que conforman el dataset para buscar buenos predictores:
+
+```{r}
+library(Hmisc)
+
+df_complete <- df.imp$ximp
+
+plot(df_complete$A16 , df_complete$A1, ylab="A1", xlab="A16")
+plot(df_complete$A16 , df_complete$A2, ylab="A2", xlab="A16")
+plot(df_complete$A16 , df_complete$A3, ylab="A3", xlab="A16")
+plot(df_complete$A16 , df_complete$A4, ylab="A4", xlab="A16")
+plot(df_complete$A16 , df_complete$A5, ylab="A5", xlab="A16")
+plot(df_complete$A16 , df_complete$A6, ylab="A6", xlab="A16")
+plot(df_complete$A16 , df_complete$A7, ylab="A7", xlab="A16")
+plot(df_complete$A16 , df_complete$A8, ylab="A8", xlab="A16")
+plot(df_complete$A16 , df_complete$A9, ylab="A9", xlab="A16")
+plot(df_complete$A16 , df_complete$A10, ylab="A10", xlab="A16")
+plot(df_complete$A16 , df_complete$A11, ylab="A11", xlab="A16")
+plot(df_complete$A16 , df_complete$A12, ylab="A12", xlab="A16")
+plot(df_complete$A16 , df_complete$A13, ylab="A13", xlab="A16")
+plot(df_complete$A16 , df_complete$A14, ylab="A14", xlab="A16")
+plot(df_complete$A16 , df_complete$A15, ylab="A15", xlab="A16")
+
+
+```
+
+Observamos en cada una de las gráficas de qué manera se distribuyen los valores de cada uno de los atributos, en función de la aprobación del crédito bancario.
+
+De entre todas las variables, se puede apreciar que `A9` y `A10` son las que más diferencian la aceptación (`+`) o cancelación (`-`) de crédito bancario (`A16`). Por esto mismo, pueden jugar muy buen papel como predictores a la hora de definir un modelo. 
+
+
+
+### 2. Prepara el dataset convenientemente e imputa los valores faltantes usando la librería `missForest`
+
+Hecho en el anterior apartado.
+
+### 3. Divide el dataset tomando las primeras 590 instancias como train y las últimas 100 como test.
+
+```{r}
+
+X <- data.matrix(subset(df_complete , select= - A16))
+y <- df_complete$A16
+
+X_train <- X[1:590,]
+y_train <- y[1:590]
+X_test <- X[591:690,]
+y_test <- y[591:690]
+
+# '+' se corresponde con el nivel '1', mientras que '-' se corresponde con '0'
+y_test <- factor(as.numeric(y_test)-1)
+y_train <- factor(as.numeric(y_train)-1)
+
+```
+
+### 4. Entrena un modelo de regresión logística con regularización Ridge y Lasso en train seleccionando el que mejor **AUC** tenga. Da las métricas en test.
+
+
+#### Regularización Lasso
+```{r}
+
+# install.packages("glmnet")
+library(glmnet)
+set.seed(999)
+cv.lasso <- cv.glmnet(X_train, y_train, family='binomial', alpha=1, parallel=TRUE, standardize=TRUE, type.measure='auc')
+# Resultados
+plot(cv.lasso)
+
+```
+
+
+```{r}
+
+# Este es el mejor valor de lambda que obtenemos
+cv.lasso$lambda.min
+
+```
+
+
+```{r}
+
+# Valor máximo de AUC obtenido
+max(cv.lasso$cvm)
+
+```
+
+
+```{r}
+
+# Coeficientes del modelo para el mejor lambda
+coef(cv.lasso, s=cv.lasso$lambda.min)
+
+
+```
+
+Observando los coeficientes asociados a cada uno de los predictores, vemos que la `regularización Lasso` anula los coeficientes de las variables que apenas aportan al modelo.
+
+Por otro lado, los coeficientes de mayor orden son aquellos que más peso tendrán en el modelo y que, de hecho, destacamos en el primer apartado por diferenciar bien el crédito bancario. Estos coeficientes de mayor peso están asociados a `A9` y `A10`.
+
+
+Métricas en test:
+
+```{r}
+
+y_pred <- as.numeric(predict.glmnet(cv.lasso$glmnet.fit, newx=X_test, s=cv.lasso$lambda.min)>.5)
+#install.packages(c("e1071", "caret", "e1071")
+library(caret)
+library(ggplot2)
+library(lattice)
+library(e1071)
+cm <- confusionMatrix(as.factor(y_pred),(y_test), mode="everything")
+cm
+```
+
+
+
+#### Regularización Ridge
+
+```{r}
+
+library(glmnet)
+set.seed(999)
+cv.ridge <- cv.glmnet(X_train, y_train, family='binomial', alpha=0, parallel=TRUE, standardize=TRUE, type.measure='auc')
+# Resultados
+plot(cv.ridge)
+
+```
+```{r}
+
+# Este es el mejor valor de lambda obtenido
+cv.ridge$lambda.min
+
+```
+
+```{r}
+
+# Valor máximo de AUC obtenido
+max(cv.ridge$cvm)
+
+```
+
+```{r}
+
+coef(cv.ridge, s=cv.ridge$lambda.min)
+
+
+```
+
+A continuación, damos las métricas en test:
+
+```{r}
+
+y_pred <- as.numeric(predict.glmnet(cv.ridge$glmnet.fit, newx=X_test, s=cv.ridge$lambda.min)>1)
+#install.packages(c("e1071", "caret", "e1071")
+library(caret)
+library(ggplot2)
+library(lattice)
+library(e1071)
+confusionMatrix(as.factor(y_pred),(y_test), mode="everything")
+
+```
+
+`Lasso` tiene un valor máximo de `AUC` mayor que `Ridge`, por lo que tomamos el primer modelo (`Lasso`).
+
+
+### 5. Aporta los *log odds* de las variables predictoras sobre la variable objetivo.
+
+Una vez obtenida la `confusionMatrix`, podemos indagar en el modelo `Lasso` obtenido anteriormente:
+
+```{r}
+exp(coef(cv.lasso, s=cv.lasso$lambda.min))
+
+```
+
+Como vemos, un incremento de las variables que se han descartado en el modelo `Lasso` no tiene ningún efecto asociado en la aprobación del crédito (toman un valor de `1`).
+
+Los valores de coeficientes más elevados se corresponen con `A9` y `A10`. 
+
+Con respecto a `A9`, el hecho de que dicha variable tome el valor categórico `t` hace que la probabilidad de obtener una aprobación de crédito (`+`) sea de 21.08 veces con respecto a los casos en los que no tuviésemos `t`. Como vimos en el gráfico de barras, cuando la variable categórica `A9` toma el valor de `t` casi siempre está asociado con una aprobación de crédito bancario en la variable `A16`.
+
+```{r}
+plot(df_complete$A16 ,df_complete$A9, ylab="A9", xlab="A16")
+
+```
+
+Para la variable categórica `A10` pasa algo parecido; la probabilidad de obtener aprobación de crédito es el doble (2.03 veces) cuando el valor de `A10` toma el valor de `t`. Viendo el gráfico de barras, se observa que también se diferencian bastante bien la aceptación/cancelación del crédito bancario en este caso, aunque menos que separándolos con `A9`. 
+
+```{r}
+plot(df_complete$A16 ,df_complete$A10, ylab="A10", xlab="A16")
+
+```
+
+Notemos que, a la hora de hacer la predicción, a priori hemos supuesto que el nivel de `1` en la variable `y` se corresponde con una aprobación de crédito bancario (`A16='+'`).
+
+### 6. Si por cada verdadero positivo ganamos 100e y por cada falso positivo perdemos 20e. ¿ Qué rentabilidad aporta aplicar este modelo?
+
+De los 100 casos que barajamos en test, hay en total 92 casos en los cuales se predice cancelación de crédito (valores iguales a 0 en la predicción hecha con `Lasso`, en su `y_pred`).
+
+Ya que en la matriz de confusión se consideran las cancelaciones de crédito como los positivos a analizar, observando dicha matriz:
+
+```{r}
+cm$table
+```
+
+Vemos que de las 92 cancelaciones predichas con nuestro modelo (fila `0` en `Prediction`), se han etiquetado erróneamente como cancelación de crédito 7 registros, que en realidad se corresponden con aprobación de crédito (FP).
+
+Si el modelo nos diera rentabilidad máxima, podemos considerar que no hubiéramos tenido falsos positivos y tendríamos el numero máximo de TP predichos (los reales), y por tanto habríamos tenido una ganancia máxima de 8600e:
+
+```{r}
+
+(86)*100
+```
+
+Pero con nuestro modelo, ganamos 8360e:
+
+```{r}
+
+((cm$table[1,1]*100)+(cm$table[1,2]*-20)) 
+
+```
+
+Por tanto, podemos considerar que nuestro modelo aporta una rentabilidad del 97.2%, comparando las ganancias obtenidas con la máxima ganancia del caso ideal:
+
+
+```{r}
+
+8360/8600
+
+```
+
+
